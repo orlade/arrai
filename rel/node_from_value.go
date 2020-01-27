@@ -5,9 +5,10 @@ import (
 
 	"github.com/arr-ai/wbnf/ast"
 	"github.com/arr-ai/wbnf/parser"
+	"github.com/arr-ai/wbnf/wbnf"
 )
 
-func nodeFromValue(v Value) ast.Node {
+func ASTNodeFromValue(v Value, attr string) ast.Node {
 	switch v := v.(type) {
 	case Tuple:
 		result := ast.Branch{}
@@ -15,6 +16,33 @@ func nodeFromValue(v Value) ast.Node {
 	outer:
 		for i := v.Enumerator(); i.MoveNext(); {
 			name, value := i.Current()
+			var children ast.Children
+			switch name {
+			case "@choice":
+				values := value.(*genericSet).OrderedValues()
+				ints := make(ast.Many, 0, len(values))
+				for _, v := range values {
+					ints = append(ints, ast.Extra{Data: int(v.(Number).Float64())})
+				}
+				children = ints
+			case "@rule":
+				children = ast.One{Node: ast.Extra{Data: wbnf.Rule(value.(String).String())}}
+			case "@skip":
+				children = ast.One{Node: ast.Extra{Data: int(value.(Number).Float64())}}
+			default:
+				switch c := children.(type) {
+				case ast.One:
+					value = ASTNodeToValue(c.Node)
+				case ast.Many:
+					values := make([]Value, 0, len(c))
+					for _, child := range c {
+						values = append(values, ASTNodeToValue(child))
+					}
+					value = NewArray(values...)
+				}
+			}
+			result[name] = children
+
 			switch value := value.(type) {
 			case Set:
 				if value.Bool() {
@@ -24,7 +52,7 @@ func nodeFromValue(v Value) ast.Node {
 							array := make(ast.Many, value.Count())
 							for j := value.Enumerator(); j.MoveNext(); {
 								index, item, _ := isArrayTuple(j.Current())
-								array[index] = nodeFromValue(item)
+								array[index] = ASTNodeFromValue(item, name)
 							}
 							result[name] = array
 							continue outer
@@ -33,27 +61,7 @@ func nodeFromValue(v Value) ast.Node {
 				}
 
 				// Not an array. Must be a string.
-				// First pass computes an offset.
-				offset := int(^uint(0) >> 1) // maxint
-				for j := value.Enumerator(); j.MoveNext(); {
-					index, _, is := isStringTuple(j.Current())
-					if !is {
-						panic("not an array")
-					}
-					if offset < index {
-						offset = index
-					}
-				}
-
-				str := make([]rune, value.Count())
-				for j := value.Enumerator(); j.MoveNext(); {
-					index, char, is := isStringTuple(j.Current())
-					if !is {
-						panic("not a string")
-					}
-					str[index-offset] = char
-				}
-				result[name] = ast.One{Node: ast.Leaf(*parser.NewBareScanner(offset, string(str)))}
+				result[name] = ast.One{Node: ast.Leaf(*parser.NewBareScanner(stringFromSet(value)))}
 				// case ast.One:
 				// 	result = result.With(name, nodeToValue(c.Node))
 			}
@@ -68,7 +76,11 @@ func nodeFromValue(v Value) ast.Node {
 		// 		return NewNumber(float64(e))
 		// 	case wbnf.Rule:
 		// 		return NewString([]rune(string(e)))
-		// 	}
 	}
 	panic(fmt.Errorf("unhandled node: %v %[1]T", v))
+}
+
+func stringFromSet(set Set) (int, string) {
+	s := set.(String)
+	return s.offset, s.String()
 }
