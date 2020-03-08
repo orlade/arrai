@@ -230,7 +230,7 @@ The three forms differ only in their escaping rules.
 1. The double- and single-quoted forms have the same set of escapes, roughly
    following C string syntax, the only difference being that, in `"..."`
    strings, `"` requires escaping via `\"`.
-2. The same applies for `"` in `"..."` strings.
+2. The same applies for `'` in `'...'` strings.
 3. Backquoted strings support no escaping other than the backquote character,
    which may be escaped with a double backquote:
 
